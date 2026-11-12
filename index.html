@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="vi" class="dark">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Update Checker</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82f6' stroke-width='2'><path d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/></svg>">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;800&family=JetBrains+Mono:wght@600;800&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Manrope', sans-serif; background-color: #050505; color: #e5e5e5; }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    .card { background: #0c0c0e; border: 1px solid #1a1a1c; transition: border-color 0.3s, box-shadow 0.3s, opacity 0.3s; position: relative; cursor: grab; }
+    .card:active { cursor: grabbing; }
+    .card.dragging { opacity: 0.4; transform: scale(0.98); }
+    .card.drag-over { border-color: #3b82f6; border-style: dashed; }
+    .card-frozen .card-content { opacity: 0.2; filter: grayscale(1); pointer-events: none; }
+    .card-frozen { border-color: #1a1a1c; }
+    .card-update { border-color: #3b82f6; box-shadow: 0 0 25px -5px rgba(59, 130, 246, 0.25); }
+    .card-stable { border-color: #27272a; }
+    .toggle-btn { cursor: pointer; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); border-radius: 9999px; padding: 6px; display: flex; align-items: center; justify-content: center; position: relative; z-index: 50; }
+    .btn-active { color: #34d399; background: rgba(16, 185, 129, 0.1); box-shadow: 0 0 12px rgba(16, 185, 129, 0.4), inset 0 0 4px rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.3); }
+    .btn-inactive { color: #ef4444; background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.2); opacity: 1 !important; }
+    .btn-inactive:hover { background: rgba(239, 68, 68, 0.15); }
+    .btn-icon-nav { background: #0c0c0e; border: 1px solid #2a2a2c; transition: all 0.2s; border-radius: 0.75rem; padding: 0.5rem; display: flex; align-items: center; justify-content: center; }
+    .btn-icon-nav:hover { border-color: #3b82f6; color: #3b82f6; }
+    .btn-icon-nav.active { border-color: #3b82f6; color: #3b82f6; background: rgba(59, 130, 246, 0.1); }
+    .executing { background: #3b82f6 !important; color: white !important; border-color: #60a5fa !important; pointer-events: none; }
+  </style>
+</head>
+<body class="flex flex-col items-center min-h-screen p-4 md:p-8">
+  <div class="w-full max-w-5xl">
+    <header class="flex items-center justify-between mb-8 pb-4 border-b border-zinc-800/60">
+      <div class="flex flex-col">
+        <h1 class="text-lg md:text-xl font-extrabold tracking-tighter bg-gradient-to-r from-zinc-100 via-zinc-300 to-zinc-500 bg-clip-text text-transparent uppercase">Update Checker</h1>
+        <div class="flex items-center gap-2 mt-1">
+          <div class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
+          <span id="last-check" class="mono text-[10px] md:text-xs font-bold text-zinc-500 tracking-wider">Loading...</span>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <!-- Nút mở cài đặt thời gian Cron -->
+        <button onclick="openCronModal()" id="btn-cron" class="btn-icon-nav text-zinc-300" title="Check Interval">
+          <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+        </button>
+
+        <button onclick="toggleInactiveVisiblity()" id="btn-toggle-eye" class="btn-icon-nav text-zinc-500" title="Show/Hide Inactive">
+          <svg id="icon-eye-off" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+          <svg id="icon-eye-on" class="hidden" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+        </button>
+
+        <button onclick="check()" id="btn-refresh" class="btn-icon-nav text-zinc-300" title="Refresh">
+          <svg id="svg-refresh" class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path></svg>
+        </button>
+      </div>
+    </header>
+    
+    <div id="grid-container" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5"></div>
+    <footer class="mt-16 text-center opacity-20 hover:opacity-100 transition-opacity"><p class="text-[8px] font-bold text-zinc-500 tracking-[0.5em] uppercase italic">Stealth Protocol v6.5</p></footer>
+  </div>
+
+  <!-- Cron Schedule Modal -->
+  <div id="cron-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+    <div class="bg-[#0c0c0e] border border-zinc-800 rounded-2xl p-6 w-full max-w-xs shadow-2xl">
+      <h3 class="text-xs font-extrabold uppercase tracking-wider text-zinc-300 mb-4 flex items-center gap-2">
+        ⏱️ Interval Settings
+      </h3>
+      
+      <label class="text-[10px] text-zinc-500 font-bold block mb-2 uppercase tracking-wider">Check Frequency</label>
+      <select id="select-cron" class="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs text-zinc-200 mono focus:outline-none focus:border-blue-500 mb-5">
+        <option value="*/30 * * * *">Every 30 mins</option>
+        <option value="0 * * * *">Every 1 hour</option>
+        <option value="0 */2 * * *">Every 2 hours</option>
+        <option value="0 */4 * * *">Every 4 hours</option>
+        <option value="0 */6 * * *">Every 6 hours</option>
+        <option value="0 */8 * * *" selected>Every 8 hours (Default)</option>
+        <option value="0 */12 * * *">Every 12 hours</option>
+        <option value="0 0 * * *">Daily</option>
+      </select>
+
+      <div class="flex items-center gap-3">
+        <button onclick="closeCronModal()" class="w-1/2 py-2.5 bg-zinc-900 text-zinc-400 font-bold text-xs rounded-xl hover:bg-zinc-800 transition-all uppercase tracking-wider">Cancel</button>
+        <button onclick="saveCronSchedule()" id="btn-save-cron" class="w-1/2 py-2.5 bg-blue-600 text-white font-extrabold text-xs rounded-xl hover:bg-blue-500 transition-all uppercase tracking-wider">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ==========================================
+    // THAY THẾ URL SUPABASE EDGE FUNCTION TẠI ĐÂY
+    // ==========================================
+    const API_BASE = "https://fyzptumrgjxbclwnihez.supabase.co/functions/v1/update-checker";
+
+    const APP_DEFS = {
+      chrome: { name: "Chrome_Dev", alt: "C", iconUrl: "https://raw.githubusercontent.com/alrra/browser-logos/main/src/chrome-dev/chrome-dev_128x128.png" },
+      edge: { name: "Edge_Dev", alt: "E", iconUrl: "https://raw.githubusercontent.com/alrra/browser-logos/main/src/edge-dev/edge-dev_128x128.png" },
+      brave: { name: "Brave_Beta", alt: "B", iconUrl: "https://raw.githubusercontent.com/alrra/browser-logos/main/src/brave-beta/brave-beta_128x128.png" },
+      edgestable: { name: "Edge_Stable", alt: "ES", iconUrl: "https://raw.githubusercontent.com/alrra/browser-logos/main/src/edge/edge_128x128.png" },
+      bravestable: { name: "Brave_Stable", alt: "BS", iconUrl: "https://raw.githubusercontent.com/alrra/browser-logos/main/src/brave/brave_128x128.png" },
+      freetube: { name: "FreeTube", alt: "FT", iconUrl: "https://www.google.com/s2/favicons?domain=freetubeapp.io&sz=128" },
+      ferdium: { name: "Ferdium", alt: "FD", iconUrl: "https://www.google.com/s2/favicons?domain=ferdium.org&sz=128" },
+      xmplay: { name: "XMPlay", alt: "XM", iconUrl: "https://files.softicons.com/download/application-icons/mega-pack-icons-2-by-nikolay-verin/png/256x256/XMplay.png" },
+      anytype: { name: "Anytype", alt: "AT", iconUrl: "https://ecosystem.ipfs.tech/images/projects/icon-anytype.png" },
+      torbrowser: { name: "Tor_Browser", alt: "TB", iconUrl: "https://www.google.com/s2/favicons?domain=torproject.org&sz=128" },
+      sandboxie: { name: "Sandboxie+", alt: "SB", iconUrl: "https://www.google.com/s2/favicons?domain=sandboxie-plus.com&sz=128" },
+      openlist: { name: "OpenList", alt: "OL", iconUrl: "https://raw.githubusercontent.com/OpenListTeam/Logo/main/OpenList.png" },
+      openlistdesktop: { name: "OpenList Desktop", alt: "OLD", iconUrl: "https://raw.githubusercontent.com/OpenListTeam/OpenList-Desktop/main/app-icon.png" },
+      rclone: { name: "Rclone", alt: "RC", iconUrl: "https://cdn.jsdelivr.net/gh/selfhst/icons/png/rclone.png" },
+    };
+
+    let browserData = {};
+    let showInactive = false;
+    let dragSrcEl = null;
+
+    function renderCards(order = []) {
+      const allIds = Object.keys(APP_DEFS);
+      const orderedIds = [
+        ...order.filter(id => allIds.includes(id)),
+        ...allIds.filter(id => !order.includes(id))
+      ];
+      const container = document.getElementById('grid-container');
+      container.innerHTML = orderedIds.map(id => {
+        const app = APP_DEFS[id];
+        return `
+        <div id="card-${id}" draggable="true" class="card card-stable rounded-[1.5rem] p-5">
+          <div class="flex items-start justify-between pointer-events-none">
+            <div class="card-content flex items-center gap-4 transition-opacity duration-300 pointer-events-none">
+              <img src="${app.iconUrl}" class="w-10 h-10 rounded-lg pointer-events-none" alt="${app.alt}">
+              <div>
+                <h2 class="text-[10px] font-extrabold text-zinc-500 tracking-widest uppercase pointer-events-none">${app.name}</h2>
+                <p id="cur-${id}" class="text-[9px] font-bold text-zinc-600 mono uppercase tracking-tight pointer-events-none">v.---</p>
+              </div>
+            </div>
+            <div class="flex flex-col items-end gap-1 pointer-events-auto">
+              <div id="toggle-btn-${id}" class="toggle-btn btn-active" onclick="toggleBrowser('${id}')" title="Power">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
+                  <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line>
+                </svg>
+              </div>
+              <div class="card-content pointer-events-none">
+                <p id="latest-${id}" class="mono text-[16px] font-extrabold text-zinc-800 tracking-tighter italic whitespace-nowrap pointer-events-none">---</p>
+              </div>
+            </div>
+          </div>
+          <div id="action-${id}" class="mt-4 hidden card-content pointer-events-auto"></div>
+        </div>`;
+      }).join('');
+      initDnD();
+    }
+
+    function initDnD() {
+      const cards = document.querySelectorAll('.card');
+      cards.forEach(card => {
+        card.addEventListener('dragstart', handleDragStart, false);
+        card.addEventListener('dragenter', handleDragEnter, false);
+        card.addEventListener('dragover', handleDragOver, false);
+        card.addEventListener('dragleave', handleDragLeave, false);
+        card.addEventListener('drop', handleDrop, false);
+        card.addEventListener('dragend', handleDragEnd, false);
+      });
+    }
+
+    function handleDragStart(e) {
+      if (e.target.closest('.toggle-btn') || e.target.tagName.toLowerCase() === 'button') { e.preventDefault(); return; }
+      dragSrcEl = this;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', this.id);
+      this.classList.add('dragging');
+    }
+    function handleDragOver(e) { if (e.preventDefault) e.preventDefault(); e.dataTransfer.dropEffect = 'move'; return false; }
+    function handleDragEnter() { this.classList.add('drag-over'); }
+    function handleDragLeave() { this.classList.remove('drag-over'); }
+    function handleDrop(e) {
+      if (e.stopPropagation) e.stopPropagation();
+      if (dragSrcEl !== this) {
+        const container = document.getElementById('grid-container');
+        const allCards = Array.from(container.children);
+        const srcIndex = allCards.indexOf(dragSrcEl);
+        const tgtIndex = allCards.indexOf(this);
+        if (srcIndex < tgtIndex) container.insertBefore(dragSrcEl, this.nextSibling);
+        else container.insertBefore(dragSrcEl, this);
+        saveOrder();
+      }
+      return false;
+    }
+    function handleDragEnd() {
+      this.classList.remove('dragging');
+      document.querySelectorAll('.card').forEach(c => c.classList.remove('drag-over'));
+    }
+
+    async function saveOrder() {
+      const container = document.getElementById('grid-container');
+      const order = Array.from(container.children).map(c => c.id.replace('card-', ''));
+      try {
+        await fetch(`${API_BASE}/api/reorder`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ order })
+        });
+      } catch (e) { console.error("Save Order Error", e); }
+    }
+
+    function toggleInactiveVisiblity() {
+      showInactive = !showInactive;
+      const btn = document.getElementById('btn-toggle-eye');
+      const iconOff = document.getElementById('icon-eye-off');
+      const iconOn = document.getElementById('icon-eye-on');
+      if (showInactive) {
+        btn.classList.add('active');
+        iconOff.classList.add('hidden');
+        iconOn.classList.remove('hidden');
+      } else {
+        btn.classList.remove('active');
+        iconOff.classList.remove('hidden');
+        iconOn.classList.add('hidden');
+      }
+      for (const id in browserData) updateUI(id, browserData[id]);
+    }
+
+    async function initPage() {
+      try {
+        const res = await fetch(`${API_BASE}/api/state`);
+        const data = await res.json();
+        document.getElementById('last-check').innerText = data.lastCheck;
+        renderCards(data.order);
+        for (const id in data.apps) {
+          const app = data.apps[id];
+          browserData[id] = {
+            current: app.installed || "0.0.0.0",
+            latest: "---",
+            isActive: app.active !== 0,
+            isNew: false
+          };
+          updateUI(id, browserData[id]);
+        }
+      } catch (e) {
+        renderCards();
+      }
+      check();
+    }
+
+    async function check() {
+      const svg = document.getElementById('svg-refresh');
+      svg.style.transition = 'transform 0.5s cubic-bezier(0.4, 0, 0.2, 1)';
+      svg.style.transform = 'rotate(180deg)';
+      try {
+        const res = await fetch(`${API_BASE}/api/check`);
+        const data = await res.json();
+        browserData = data;
+        for (const id in data) {
+          if (id !== 'lastCheck') updateUI(id, data[id]);
+        }
+        document.getElementById('last-check').innerText = data.lastCheck;
+      } catch (e) { console.error(e); }
+      finally { setTimeout(() => { svg.style.transform = 'rotate(0deg)'; }, 400); }
+    }
+
+    function updateUI(id, info) {
+      const card = document.getElementById('card-' + id);
+      if (!card) return;
+
+      const curEl = document.getElementById('cur-' + id);
+      const latestEl = document.getElementById('latest-' + id);
+      const actionEl = document.getElementById('action-' + id);
+      const toggleBtn = document.getElementById('toggle-btn-' + id);
+
+      curEl.innerText = (info.current.startsWith('v') ? '' : 'v.') + info.current;
+      latestEl.innerText = info.latest;
+
+      toggleBtn.className = info.isActive ? 'toggle-btn btn-active' : 'toggle-btn btn-inactive';
+      card.style.order = info.isActive ? '1' : '2';
+
+      if (!info.isActive && !showInactive) {
+        card.classList.add('hidden');
+      } else {
+        card.classList.remove('hidden');
+      }
+
+      if (!info.isActive) {
+        card.className = 'card card-frozen rounded-[1.5rem] p-5 ' + (card.classList.contains('hidden') ? 'hidden' : '');
+        actionEl.classList.add('hidden');
+      } else if (info.isNew) {
+        card.className = 'card card-update rounded-[1.5rem] p-5 ' + (card.classList.contains('hidden') ? 'hidden' : '');
+        latestEl.className = 'mono text-lg font-extrabold text-blue-500 tracking-tighter italic';
+        actionEl.classList.remove('hidden');
+        actionEl.innerHTML = `<button id="btn-confirm-${id}" onclick="confirmUpdate('${id}')" class="w-full py-3 bg-zinc-900 border border-zinc-800 text-blue-400 font-extrabold text-[10px] rounded-xl transition-all uppercase tracking-[0.2em] hover:bg-zinc-800">Establish Update</button>`;
+      } else {
+        card.className = 'card card-stable rounded-[1.5rem] p-5 ' + (card.classList.contains('hidden') ? 'hidden' : '');
+        latestEl.className = 'mono text-lg font-extrabold text-zinc-600 tracking-tighter italic';
+        actionEl.classList.add('hidden');
+      }
+    }
+
+    async function toggleBrowser(id) {
+      const newActive = !browserData[id].isActive;
+      browserData[id].isActive = newActive;
+      if (newActive) browserData[id].latest = "CONNECTING...";
+      updateUI(id, browserData[id]);
+      try {
+        await fetch(`${API_BASE}/api/toggle`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ browser: id, active: newActive }) });
+        if (newActive) setTimeout(check, 600);
+      } catch (e) { console.error("Toggle Error"); }
+    }
+
+    async function confirmUpdate(id) {
+      const btn = document.getElementById('btn-confirm-' + id);
+      const version = browserData[id].latest;
+      btn.classList.add('executing'); btn.innerText = "UPDATING...";
+      try {
+        await fetch(`${API_BASE}/api/confirm`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ browser: id, version }) });
+        setTimeout(check, 400);
+      } catch (e) { btn.classList.remove('executing'); btn.innerText = "RETRY"; }
+    }
+
+    async function openCronModal() {
+      const modal = document.getElementById('cron-modal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      try {
+        const res = await fetch(`${API_BASE}/api/cron-schedule?t=${Date.now()}`);
+        const data = await res.json();
+        if (data.schedule) {
+          document.getElementById('select-cron').value = data.schedule;
+        }
+      } catch (e) {
+        console.error("Failed to load schedule:", e);
+      }
+    }
+
+    function closeCronModal() {
+      const modal = document.getElementById('cron-modal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    async function saveCronSchedule() {
+      const btn = document.getElementById('btn-save-cron');
+      const select = document.getElementById('select-cron');
+      const schedule = select.value;
+      
+      btn.innerText = "SAVING...";
+      btn.disabled = true;
+      
+      try {
+        const res = await fetch(`${API_BASE}/api/cron-schedule`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ schedule })
+        });
+        const result = await res.json();
+        if (result.success) {
+          closeCronModal();
+        } else {
+          alert("Error: " + (result.error || "Failed to update"));
+        }
+      } catch (e) {
+        alert("Network error: Failed to save");
+      } finally {
+        btn.innerText = "SAVE";
+        btn.disabled = false;
+      }
+    }
+
+    window.onload = initPage;
+  </script>
+</body>
+</html>
